@@ -33,31 +33,52 @@ def calculate_degradation(machine: Machine, rng: np.random.RandomState, multipli
 
 def generate_logs(machine: Machine, rng: np.random.RandomState) -> List[str]:
     """
-    The Symptom Emitter.
-    Generates vague logs based on hidden health.
+    Generate VAGUE, symptom-based logs.
+    Agent must infer problems, not get diagnoses.
     """
     logs = []
     h = machine.health
     m_id = machine.id
 
     if h <= 0.0:
-        logs.append(f"CRITICAL: Machine {m_id} has failed completely.")
+        # Only say it failed, not why
+        logs.append(f"CRITICAL: Machine {m_id} has stopped working")
         machine.status = 'broken'
         return logs
 
-    # Fog of War Logic
+    # Symptoms get worse as health decreases
+    # But we intentionally make them vague and probabilistic
+    
     if h < 0.2:
-        if rng.random() < 0.60:
-            logs.append(f"Log: Loud banging heard from Machine {m_id}.")
+        if rng.random() < 0.70:  # 70% chance of symptom
+            symptoms = [
+                f"Customer complaint: Machine {m_id} left clothes soaking wet",
+                f"Customer complaint: Machine {m_id} didn't clean properly",
+                f"Loud banging noise from Machine {m_id} area",
+                f"Machine {m_id} vibrating excessively during cycle"
+            ]
+            logs.append(rng.choice(symptoms))
+            
     elif h < 0.4:
-        if rng.random() < 0.40:
-            logs.append(f"Log: Customer complains Machine {m_id} clothes are wet/dirty.")
-    elif h < 0.7:
-        if rng.random() < 0.15:
-            logs.append(f"Log: Machine {m_id} is taking longer to finish cycles.")
-    elif h < 0.9:
-        if rng.random() < 0.05:
-            logs.append(f"Log: Machine {m_id} has a slight vibration.")
+        if rng.random() < 0.50:
+            symptoms = [
+                f"Customer: Machine {m_id} took longer than usual",
+                f"Observation: Machine {m_id} sounds louder than normal",
+                f"Customer: Clothes from Machine {m_id} smell musty",
+            ]
+            logs.append(rng.choice(symptoms))
+            
+    elif h < 0.6:
+        if rng.random() < 0.25:
+            symptoms = [
+                f"Machine {m_id} cycle completed slower than expected",
+                f"Minor leak observed near Machine {m_id}",
+            ]
+            logs.append(rng.choice(symptoms))
+            
+    elif h < 0.8:
+        if rng.random() < 0.10:
+            logs.append(f"Machine {m_id} making slight unusual noise")
             
     return logs
 

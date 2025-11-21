@@ -26,6 +26,10 @@ class MaintenanceOp(BaseModel):
     machine_id: int
     action: Literal['inspect', 'repair_cheap', 'repair_premium', 'replace']
 
+class InspectionAction(BaseModel):
+    """Inspect a machine to reveal its condition (costs $10)"""
+    machine_id: int
+    
 class AgentAction(BaseModel):
     pricing_change: Optional[Dict[str, float]] = None
     buy_inventory: Optional[Dict[str, int]] = None # {'soap': 5, 'machine_parts': 1}
@@ -33,3 +37,6 @@ class AgentAction(BaseModel):
     marketing_change: Optional[float] = None
     pay_debt: float = 0.0
     update_memory: Optional[str] = None
+    
+    # NEW: Information gathering actions
+    inspections: List[InspectionAction] = []  # NEW

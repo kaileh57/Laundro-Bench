@@ -1,9 +1,13 @@
 # main.py
 import sys
 import random
+import json
+import os
 from src.generator import generate_scenarios
 from src.engine import LaundromatEnv
 from src.models import AgentAction
+from src.diagnostics import Diagnostics
+from src.baselines import smart_agent_wrapper
 from colorama import Fore, Style, init
 
 init(autoreset=True)
@@ -18,9 +22,9 @@ def random_agent(obs):
     for m in obs['machines']:
         if m['status'] == 'broken':
             ops.append({'machine_id': m['id'], 'action': 'repair_cheap'})
-        elif 'Loud banging' in str(obs['log_history']):
+        elif 'Loud banging' in str(obs['daily_logs']):
              # Rudimentary text parsing
-             if str(m['id']) in str(obs['log_history']):
+             if str(m['id']) in str(obs['daily_logs']):
                  ops.append({'machine_id': m['id'], 'action': 'inspect'})
 
     # 2. Check Inventory
@@ -110,17 +114,21 @@ def run_simulation(scenario_id="S-01", agent_func=random_agent, total_days=365, 
     
     env = LaundromatEnv(f"data/scenarios/{scenario_id}.json")
     
+    # Initialize Diagnostics
+    diagnostics = Diagnostics(env.scenario['id'], env.hidden_mechanics)
+    
     # Enforce determinism for the agent's random actions
     random.seed(env.seed)
     
-    obs = env.state.model_dump() # Initial state
-    # Sanitize init
-    for m in obs['machines']: del m['health']
+    # Initial Observation
+    obs = env._create_observation(env.state)
+    # Add internal metrics for initial state if needed, or just ignore
+    obs['_internal_metrics'] = {'nbv': 0, 'daily_profit': 0, 'true_satisfaction': env.state.customer_satisfaction}
 
     for _ in range(total_days):
         if verbose:
             print(f"\n{Fore.YELLOW}--- DAY {obs['day']} ---{Style.RESET_ALL}")
-            print(f"Cash: ${obs['cash']:.2f} | Sat: {obs['customer_satisfaction']:.1f}")
+            print(f"Cash: ${obs['cash']:.2f} | Sat: {obs['satisfaction_stars']}*")
         
         # Agent decides
         action = agent_func(obs)
@@ -128,9 +136,12 @@ def run_simulation(scenario_id="S-01", agent_func=random_agent, total_days=365, 
         # Environment steps
         obs = env.step(action)
         
+        # Record Diagnostics
+        diagnostics.record_step(env.state, action, obs['daily_logs'])
+        
         # Print Logs
         if verbose:
-            for log in obs['log_history']:
+            for log in obs['daily_logs']:
                 if "CRITICAL" in log:
                     print(f"{Fore.RED}{log}{Style.RESET_ALL}")
                 elif "Log:" in log:
@@ -138,15 +149,22 @@ def run_simulation(scenario_id="S-01", agent_func=random_agent, total_days=365, 
                 else:
                     print(log)
 
-    nbv = obs['financial_summary']['nbv']
+    nbv = obs['_internal_metrics']['nbv']
+    
+    # Generate Report
+    report = diagnostics.generate_report()
+    
     if verbose:
         print(f"\n{Fore.GREEN}Simulation Complete.{Style.RESET_ALL}")
         print(f"Final Net Business Value: ${nbv}")
+        print("\n=== DIAGNOSTIC REPORT ===")
+        print(f"Strategy: {report['strategy']}")
+        print(f"Discovered Hidden Mechanic: {report['discovered_mechanic']}")
+        print(f"Survival Days: {report['survival_days']}")
+        print(f"Final Cash: ${report['final_cash']:.2f}")
+        print("=========================")
     
     return nbv
-
-import json
-import os
 
 def run_baseline():
     print(f"{Fore.MAGENTA}=== STARTING COMPREHENSIVE BASELINE RUN ==={Style.RESET_ALL}")
@@ -156,24 +174,19 @@ def run_baseline():
         os.makedirs("results")
 
     scenarios = [
-        "S-01", "S-01-Hard",
-        "S-02", "S-02-Hard",
-        "S-03", "S-03-Hard",
-        "S-04", "S-04-Hard",
-        "S-05", "S-05-Hard",
-        "S-06", "S-06-Hard",
-        "S-07", "S-07-Hard",
-        "S-08", "S-08-Hard"
+        "S-01", "S-02", "S-03", "S-04", 
+        "S-05", "S-06", "S-07", "S-08"
     ]
     
     agents = {
         "Random": random_agent,
         "Reactive": reactive_agent,
-        "Greedy": greedy_agent
+        "Greedy": greedy_agent,
+        "Smart": smart_agent_wrapper
     }
     
-    print(f"{'Scenario':<20} | {'Random':<15} | {'Reactive':<15} | {'Greedy':<15}")
-    print("-" * 70)
+    print(f"{'Scenario':<20} | {'Random':<10} | {'Reactive':<10} | {'Greedy':<10} | {'Smart':<10}")
+    print("-" * 80)
     
     agent_results = {name: {} for name in agents}
 
@@ -183,10 +196,11 @@ def run_baseline():
             try:
                 nbv = run_simulation(s_id, agent_func=func, total_days=365, verbose=False)
                 color = Fore.GREEN if nbv > 0 else Fore.RED
-                print(f"{color}${nbv:,.0f}{Style.RESET_ALL}".ljust(24), end="")
+                print(f"{color}${nbv:,.0f}{Style.RESET_ALL}".ljust(13), end="")
                 agent_results[name][s_id] = nbv
             except Exception as e:
-                print(f"{Fore.RED}ERROR{Style.RESET_ALL}".ljust(24), end="")
+                # print(e)
+                print(f"{Fore.RED}ERROR{Style.RESET_ALL}".ljust(13), end="")
                 agent_results[name][s_id] = None
         print()
     
